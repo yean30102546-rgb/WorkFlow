@@ -84,8 +84,8 @@ function submitJob(data) {
     data.uid // uid
   ]);
   
-  // TODO: Send Line Notify to User 2
-  // sendLineNotify("มีการแจ้งงานใหม่: " + jobId + "\nรอการกำหนดจุดลงสินค้า");
+  // แจ้งเตือนคนขับโฟล์คลิฟต์ทันทีเมื่อมีการแจ้งงานใหม่
+  sendLineNotify("\n📦 งานใหม่มาแล้ว!\nID: " + jobId + "\nBatch: " + data.batchNumber + "\nItem: " + data.itemName + "\nจุดรับ: " + data.storagePosition + "\n\nกรุณารอ PDF กำหนดจุดวางสินค้า...");
   
   return { success: true, id: jobId };
 }
@@ -101,8 +101,8 @@ function assignPosition(id, dropoffPosition) {
     sheet.getRange(rowIndex, 7).setValue(dropoffPosition); // Column G
     sheet.getRange(rowIndex, 11).setValue('Assigned'); // Column K
     
-    // TODO: Send Line Notify to User 3
-    // sendLineNotify("งาน " + id + " กำหนดจุดลงแล้ว: " + dropoffPosition + "\nเริ่มรับงานได้เลย");
+    // แจ้งเตือนคนขับว่า PDF กำหนดจุดวางให้แล้ว
+    sendLineNotify("\n📍 กำหนดจุดวางแล้ว!\nID: " + id + "\nจุดวาง: " + dropoffPosition + "\n\nคนขับเริ่มดำเนินการได้รับสินค้าได้เลย!");
     
     return { success: true };
   }
@@ -138,8 +138,8 @@ function completeJob(id, photoUrl) {
     sheet.getRange(rowIndex, 10).setValue(photoUrl); // Column J
     sheet.getRange(rowIndex, 11).setValue('Delivered'); // Column K
     
-    // TODO: Send Line Notify back to User 2
-    // sendLineNotify("งาน " + id + " ส่งสินค้าเรียบร้อยแล้ว\nรูปภาพ: " + photoUrl);
+    // แจ้งเตือนกลับไปที่ PDF ว่างานเสร็จแล้ว
+    sendLineNotify("\n✅ งานเสร็จสมบูรณ์!\nID: " + id + "\nสถานะ: ส่งเรียบร้อยแล้ว\nรูปภาพหลักฐาน: " + (photoUrl || 'ไม่มีรูปภาพ'));
     
     return { success: true };
   }
