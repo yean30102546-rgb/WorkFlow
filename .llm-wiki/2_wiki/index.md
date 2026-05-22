@@ -16,3 +16,5 @@
 - [Server Action Zod Schema Export Constraint](lessons-learned/server-action-zod.md) - ข้อจำกัดห้าม export Zod Schema จากไฟล์ `"use server"`.
 - [CORS & CSP Fixes [Deprecated]](lessons-learned/cors-csp-fixes.md) - การจัดการ CORS header อย่างปลอดภัยในยุค GAS.
 - [GAS Deployment [Deprecated]](lessons-learned/gas-deployment.md) - การตั้งค่า Web App permissions ใน GAS.
+- [Git Filename Too Long](lessons-learned/git-longpaths.md) - วิธีเปิดใช้งาน core.longpaths เพื่อแก้ปัญหานี้บน Windows OS
+
