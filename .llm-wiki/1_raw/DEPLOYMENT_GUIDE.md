@@ -1,4 +1,4 @@
-# QSMS Rework Management System - Deployment Guide
+﻿# QSMS Rework Management System - Deployment Guide
 
 Complete step-by-step instructions to deploy the Rework Management System as a fully functional web application.
 
@@ -6,11 +6,12 @@ Complete step-by-step instructions to deploy the Rework Management System as a f
 
 ## 📋 Table of Contents
 1. [Backend Setup (Google Apps Script)](#backend-setup)
-2. [Frontend Configuration](#frontend-configuration)
+2. [Google Apps Script Properties](#google-apps-script-properties)
 3. [Google Sheets Setup](#google-sheets-setup)
-4. [Deployment Steps](#deployment-steps)
-5. [Testing & Troubleshooting](#testing--troubleshooting)
-6. [Production Checklist](#production-checklist)
+4. [Frontend Configuration](#frontend-configuration)
+5. [Deployment Steps](#deployment-steps)
+6. [Testing & Troubleshooting](#testing--troubleshooting)
+7. [Production Checklist](#production-checklist)
 
 ---
 
@@ -25,31 +26,52 @@ Complete step-by-step instructions to deploy the Rework Management System as a f
 
 ### Step 2: Copy the Backend Code
 
-1. Copy the entire contents of `gas/Code.gs` from your project
+1. Copy the full contents of `gas/Code.gs` from this repository
 2. Paste it into the Google Apps Script editor
-3. **Important**: Replace `'YOUR_GOOGLE_SHEET_ID_HERE'` with your actual Google Sheet ID
-   - To find your Sheet ID: Open your Google Sheet > Copy the ID from the URL
+3. Save the project
+
+### Step 3: Set the Google Sheet ID
+
+1. Open `gas/Code.gs`
+2. Set `SHEET_ID` to your Google Sheet ID
    - Example URL: `https://docs.google.com/spreadsheets/d/1abc2def3ghi4jkl5mno6pqr/edit`
-   - The ID is: `1abc2def3ghi4jkl5mno6pqr`
+   - Sheet ID: `1abc2def3ghi4jkl5mno6pqr`
+3. Save the project again
 
-### Step 3: Initialize the Sheet Structure
+---
 
-1. In the Google Apps Script editor, look for the function `initializeSheet()`
-2. Click on it and press **Ctrl+Enter** to run it
-3. This will create the necessary column headers in your Google Sheet:
-   - Item ID
-   - Case ID
-   - Date
-   - Source
-   - Item Number
-   - Item Name
-   - Item Code
-   - Amount (Box)
-   - Reason
-   - Responsible
-   - Details
-   - Status
-   - Image URLs
+## Google Apps Script Properties
+
+This project stores sensitive login configuration in Apps Script Properties instead of hardcoding it.
+
+### Required Script Properties
+
+Set these values in the Apps Script editor:
+
+- `AUTH_TOKEN_SECRET` = A long random secret string
+- `QSMS_PIN` = 123456 (or your chosen PIN)
+- `QSMS_EMAIL` = qsms@company.com
+- `QSMS_NAME` = QSMS
+- `QSMS_ROLE` = operator
+- `QSMS_DEPARTMENT` = Rework
+- `WFG_PIN` = 654321 (or your chosen PIN)
+- `WFG_EMAIL` = wfg@company.com
+- `WFG_NAME` = WFG
+- `WFG_ROLE` = operator
+- `WFG_DEPARTMENT` = Rework
+
+### How to Add Script Properties
+
+1. In the Apps Script editor, click **File → Project properties**
+2. Open the **Script properties** tab
+3. Add each property name and value from the required list above
+4. Save the properties
+
+### Why this matters
+
+- No secrets are stored in source code
+- PIN values and token secret can be updated without editing code
+- Keeps deployment safer and easier to maintain
 
 ---
 
@@ -58,40 +80,62 @@ Complete step-by-step instructions to deploy the Rework Management System as a f
 ### Step 1: Create a New Google Sheet
 
 1. Go to [Google Sheets](https://sheets.google.com)
-2. Click **"+ Blank"** to create a new sheet
+2. Click **"+ Blank"** to create a new spreadsheet
 3. Rename it to `QSMS Rework Management`
-4. **Keep this sheet open** - you'll need to copy the ID
+4. Keep the sheet open to copy the ID later
 
-### Step 2: Run Sheet Initialization
+### Step 2: Create Required Sheets
 
-1. Go back to your Google Apps Script project
-2. Run the `initializeSheet()` function to add headers automatically
+In the same spreadsheet, add these tabs:
+- `Rework Cases`
+- `ItemMaster`
+- `Backup`
 
-### Step 3: Set Up Additional Sheets (Optional)
+### Step 3: Initialize Column Headers
 
-Create these sheets for better organization:
-- **Rework Cases** - Main data sheet (auto-created with headers)
-- **Backup** - Automatic backup location
-- **Defect Codes** - Lookup table for defect reasons:
-  ```
-  Code | Description
-  เล็ด | รั่ว/ซึม
-  ซีล | ซีลฟอยล์ไม่ติด
-  คราบ | เปื้อน/คราบ
-  อื่นๆ | อื่นๆ
-  ```
+1. In the Apps Script editor, if the `initializeSheet()` function exists, run it
+2. Confirm the `Rework Cases` sheet contains the required headers
+
+Required headers:
+- Item ID
+- Case ID
+- Date
+- Source
+- Item Number
+- Item Name
+- Item Code
+- Amount (Box)
+- Reason
+- Responsible
+- Details
+- Status
+- Image URLs
 
 ---
 
 ## Frontend Configuration
 
-### Step 1: Update API URL
+### Step 1: Set the GAS Web App URL
 
-1. Open `src/services/api.ts` in your React project
-2. Find the line: `const GAS_WEB_APP_URL = 'https://script.google.com/macros/d/{DEPLOYMENT_ID}/usercallback';`
-3. Replace `{DEPLOYMENT_ID}` with your actual deployment ID (see Deployment Steps below)
+1. Copy the deployed GAS Web App URL from Deployment Steps below
+2. Open `src/services/api.ts`
+3. Ensure `GAS_WEB_APP_URL` uses the full URL
 
-### Step 2: Install Dependencies
+Example:
+```ts
+const GAS_AUTH_URL = process.env.REACT_APP_GAS_WEB_APP_URL ||
+  'https://script.google.com/macros/s/AKfycbw.../exec';
+```
+
+### Step 2: Create `.env` Locally
+
+1. Copy `.env.example` to `.env`
+2. Update the values to match your environment
+3. Set at minimum:
+   - `REACT_APP_GAS_WEB_APP_URL`
+   - `REACT_APP_ENVIRONMENT=development`
+
+### Step 3: Install Dependencies
 
 ```bash
 npm install
@@ -99,13 +143,7 @@ npm install
 yarn install
 ```
 
-Ensure these packages are installed:
-- `react` - ^18.0.0
-- `lucide-react` - Latest
-- `motion` (Framer Motion) - Latest
-- `tailwindcss` - Latest
-
-### Step 3: Verify Environment
+### Step 4: Verify Local Development
 
 ```bash
 npm run dev
@@ -113,7 +151,7 @@ npm run dev
 yarn dev
 ```
 
-Test that the app runs locally on `http://localhost:5173` (or your configured port)
+Open the app in your browser and confirm the login page loads.
 
 ---
 
@@ -121,28 +159,25 @@ Test that the app runs locally on `http://localhost:5173` (or your configured po
 
 ### Step 1: Deploy Google Apps Script as Web App
 
-1. In Google Apps Script editor, click **"Deploy"** (⬆️ icon)
-2. Click **"+ New Deployment"**
-3. Select **Type**: `Web app`
-4. Configure deployment settings:
-   - **Execute as**: Your Google Account (account that owns the Sheet)
-   - **Who has access**: "Anyone" (to allow the frontend to access it)
-5. Click **"Deploy"**
-6. You'll see a dialog with your **Deployment ID**
-   - Copy this ID carefully
-   - **Example**: `AKfycbwXr_abc123def456ghi789jklmnop`
-7. You'll also see the **Web App URL**:
-   - **Example**: `https://script.google.com/macros/d/AKfycbwXr_abc123def456ghi789jklmnop/usercallback`
-8. **Copy this entire URL** - you'll need it for the frontend
+1. In the Apps Script editor, click **Deploy** (arrow icon)
+2. Choose **New deployment**
+3. Select **Web app** as the deployment type
+4. Configure:
+   - **Execute as**: Me (the Google account that owns the sheet)
+   - **Who has access**: Anyone
+5. Click **Deploy**
+6. Copy the **Web App URL** shown in the dialog
 
-### Step 2: Update Frontend with Web App URL
+This URL is required for the frontend.
 
-1. Open `src/services/api.ts`
-2. Find: `const GAS_WEB_APP_URL = '...'`
-3. Replace the URL with your actual GAS Web App URL from Step 1.8
-4. Save the file
+### Step 2: Update Frontend Environment
 
-### Step 3: Build Frontend for Production
+1. Open `.env` in your project root
+2. Set:
+   - `REACT_APP_GAS_WEB_APP_URL=<your GAS web app URL>`
+3. Save the file
+
+### Step 3: Build the Frontend for Production
 
 ```bash
 npm run build
@@ -150,201 +185,76 @@ npm run build
 yarn build
 ```
 
-This creates an optimized `dist/` folder with your frontend
+This generates the production bundle in `dist/`.
 
-### Step 4: Deploy Frontend
+### Step 4: Deploy the Frontend
 
-Choose one of these options:
+Recommended options:
 
-#### Option A: Vercel (Recommended for React apps)
+#### Vercel
 ```bash
 npm install -g vercel
 vercel
-# Follow the prompts to connect your GitHub repo and deploy
 ```
 
-#### Option B: Netlify
+#### Netlify
 ```bash
 npm install -g netlify-cli
 netlify deploy --prod --dir=dist
 ```
 
-#### Option C: GitHub Pages
-1. Update `vite.config.js`:
-   ```javascript
-   export default {
-     base: '/rework-management/', // Change to your repo name
-     // ... rest of config
-   }
-   ```
-2. Build: `npm run build`
-3. Push to GitHub and enable GitHub Pages in settings
+#### GitHub Pages
+1. Configure `vite.config.ts` base if needed
+2. Run `npm run build`
+3. Deploy `dist/` to GitHub Pages
 
-#### Option D: Manual Hosting (Any server)
-1. Upload the `dist/` folder to your web server
-2. Ensure your server serves `index.html` for all routes (SPA requirement)
-3. Update `.env` or config files with the GAS Web App URL
-
-### Step 5: Test Deployment
-
-1. Open your deployed frontend URL in a browser
-2. Try these actions:
-   - ✅ View the "Overall" tab
-   - ✅ Click "Add Case" and fill in a test form
-   - ✅ Click "Save" and verify data appears in your Google Sheet
-   - ✅ Click on a case row to open the Update Modal
-   - ✅ View the Dashboard tab
+#### Manual Static Hosting
+Upload `dist/` to any web server and ensure `index.html` is served for all routes.
 
 ---
 
 ## Testing & Troubleshooting
 
-### Test the Backend API Directly
+### Verify Auth Flow
 
-You can test the GAS API before integrating with the frontend:
+1. Open the deployed frontend
+2. Log in with `QSMS` or `WFG`
+3. Use the configured PIN values from GAS Script Properties
+4. Confirm login succeeds and data operations work
 
-1. Open **Google Apps Script editor** → **Run** → **testDoPost()**
-2. Check **Logs** (View → Logs) for response
-3. Verify data in your Google Sheet
+### Quick Backend Test
 
-### Common Issues & Solutions
+- Run backend test functions from Apps Script editor
+- Check logs for errors
+- Confirm sheet updates correctly
 
-#### Issue: "CORS Error" or "Failed to fetch"
-**Solution:**
-- Ensure GAS is deployed as Web App with "Anyone" access
-- Double-check the GAS URL in `api.ts` is correct
-- Check browser console for exact error message
+### Common Issues
 
-#### Issue: "Google Sheet not found"
-**Solution:**
-- Verify `SHEET_ID` in `gas/Code.gs` matches your Sheet ID
-- Verify sheet name matches: `const SHEET_NAME = 'Rework Cases'`
-- Ensure GAS account has permission to access the Sheet
+#### CORS or fetch failed
+- Confirm GAS Web App is deployed with **Anyone** access
+- Check `REACT_APP_GAS_WEB_APP_URL` in `.env`
+- Use HTTPS URL only
 
-#### Issue: "Data not saving"
-**Solution:**
-- Check that GAS deployed as Web App (not function/library)
-- Verify Sheet headers are properly initialized
-- Check GAS execution logs for errors
+#### Invalid profile or PIN
+- Confirm values in GAS Script Properties:
+  - `QSMS_PIN`
+  - `WFG_PIN`
+  - `QSMS_EMAIL`
+  - `WFG_EMAIL`
 
-#### Issue: "Modal doesn't open"
-**Solution:**
-- Ensure UpdateModal component is imported in App.tsx
-- Check browser console for component errors
-- Verify z-index values in CSS don't conflict
-
-### Manual Testing Checklist
-
-- [ ] Create a new case with 1 item
-- [ ] Create a new case with 3 items
-- [ ] Upload images (up to 5)
-- [ ] Search for cases
-- [ ] Click case row to update status
-- [ ] Verify data persists after refresh
-- [ ] Check dashboard statistics update
-- [ ] Test on mobile device
+#### Sheet write failure
+- Confirm `SHEET_ID` is correct in `gas/Code.gs`
+- Confirm the GAS account has edit access to the sheet
 
 ---
 
 ## Production Checklist
 
-Before going live to production users:
-
-### Security
-- [ ] Set `execute as` to a service account (not personal account)
-- [ ] Review data in Google Sheet is what you expect
-- [ ] Set up Google Sheet permissions properly
-- [ ] Consider adding authentication layer (if needed)
-- [ ] Use HTTPS for deployed frontend (automatically with Vercel/Netlify)
-
-### Performance
-- [ ] Test with 100+ records in Google Sheet
-- [ ] Verify load times are acceptable
-- [ ] Implement pagination if data grows too large
-- [ ] Test image uploads and file sizes
-
-### Data Integrity
-- [ ] Set up backup sheets (already handled in Code.gs)
-- [ ] Regularly backup your Google Sheet
-- [ ] Document the data schema
-
-### User Preparation
-- [ ] Create user documentation
-- [ ] Train team on:
-  - Adding new cases
-  - Updating case status
-  - Viewing dashboard
-  - Troubleshooting common issues
-- [ ] Create admin guide for:
-  - Accessing Google Sheet
-  - Running reports
-  - Managing data
-
-### Monitoring
-- [ ] Set up error logging
-- [ ] Monitor GAS quota usage
-- [ ] Create feedback channel for user issues
-- [ ] Plan for regular maintenance
-
----
-
-## Environment Variables (Optional)
-
-If deploying to cloud platforms, you may want to use environment variables:
-
-Create a `.env` file:
-```
-VITE_GAS_URL=https://script.google.com/macros/d/YOUR_DEPLOYMENT_ID/usercallback
-VITE_APP_NAME=QSMS Rework Management
-VITE_API_TIMEOUT=30000
-```
-
-Update `src/services/api.ts`:
-```typescript
-const GAS_WEB_APP_URL = import.meta.env.VITE_GAS_URL || 'https://...';
-```
-
----
-
-## Support & Maintenance
-
-### Regular Maintenance Tasks
-1. **Weekly**: Review new cases and dashboard
-2. **Monthly**: Verify data integrity in Google Sheet
-3. **Quarterly**: Review and optimize performance
-4. **Annually**: Update dependencies and review security
-
-### Getting Help
-- Check browser console for errors: `F12` → Console tab
-- Check GAS logs: Google Apps Script → View → Logs
-- Review `git log` for recent changes if deploying from Git
-
-### Scaling Considerations
-
-If your system grows:
-- Google Sheets has a ~10M cells limit
-- GAS has quotas per account
-- Consider moving to Google Firestore or BigQuery for larger systems
-- Implement data archival strategy
-
----
-
-## Quick Reference URLs
-
-Save these for future reference:
-
-```
-Google Sheet ID: [Your ID]
-GAS Deployment ID: [Your Deployment ID]
-GAS Web App URL: https://script.google.com/macros/d/[ID]/usercallback
-Frontend URL: [Your deployed URL]
-GitHub Repo: [Your repo URL]
-```
-
----
-
-**Setup Complete! 🎉**
-
-Your QSMS Rework Management System is now live and ready to use.
-
-For questions or issues, refer to the Troubleshooting section or contact your development team.
+- [ ] `REACT_APP_GAS_WEB_APP_URL` set in `.env`
+- [ ] GAS script properties configured
+- [ ] `SHEET_ID` correct in `gas/Code.gs`
+- [ ] Frontend build passes (`npm run build`)
+- [ ] Frontend deployed over HTTPS
+- [ ] Login works for both `QSMS` and `WFG`
+- [ ] Data is saved and visible in Google Sheets
+- [ ] Backup sheet exists and is accessible

@@ -4,7 +4,7 @@ import path from 'path';
 export default defineConfig({
   test: {
     globals: true,
-    exclude: [...defaultExclude, 'legacy-vite/**', 'tests/**'],
+    exclude: [...defaultExclude, 'legacy/**', '**/legacy-vite/**', 'tests/**'],
     alias: {
       '@': path.resolve(__dirname, './src'),
     },

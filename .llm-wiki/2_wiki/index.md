@@ -4,14 +4,21 @@
 - [Next.js & Drizzle ORM](tech-stack/nextjs-drizzle.md) - ระบบ Next.js 16+ App Router, Drizzle ORM และ Supabase Realtime พร้อม Mock DB Fallback.
 - [GAS Backend [Deprecated]](tech-stack/gas-backend.md) - Google Apps Script backend architecture (13 columns Data Schema, CORS handling).
 - [Frontend React [Deprecated]](tech-stack/frontend-react.md) - React 18, TypeScript, Tailwind CSS v4, Lucide React, Vite.
-- [Data Schema](architecture/data-schema.md) - โครงสร้างตารางสำหรับ Jobs (รองรับการแปลงเป็น Drizzle ORM `jobs` table).
+- [Database Schema](architecture/db-schema.md) - โครงสร้างตาราง PostgreSQL (Drizzle) เก็บข้อมูลการเรียกฟอร์คลิฟต์, การจับเวลา (Timestamps), และรูประหว่างดำเนินการ.
+- [RBAC & Multicast Push](architecture/rbac-multicast.md) - โครงสร้างตาราง Users เพื่อตรวจสอบสิทธิ์การรับงานระดับ Backend (Database-Level) พร้อมระบบยิงแจ้งเตือนคนขับทุกคนผ่าน LINE Messaging API แบบอัตโนมัติ
+- [Auto-Cleanup Cronjob](architecture/auto-cleanup-cron.md) - ระบบ Vercel Cron API Route เปลี่ยนสถานะงาน PENDING ที่เกิน 12 ชั่วโมงให้เป็น CANCELLED แบบอัตโนมัติ
 - [API Design [Deprecated]](architecture/api-design.md) - รูปแบบ Payload สำหรับการเรียกใช้ผ่าน GAS API JSON.
 
 ## Frontend & Components
 - [Auth & Identity Flow](components/auth-flow.md) - ระบบ LINE LIFF authentication พร้อมรองรับ parameter-based developer mock login.
 - [Roles & Features](components/roles-flow.md) - หน้าที่และ Flow การทำงานของ Operator Portal และ Forklift Driver Dashboard.
+- [LINE Integration](components/line-integration.md) - ระบบแชร์การ์ดเรียกงานและจบงาน Flex Message ผ่าน LINE LIFF.
+- [Field-Tested UX & Gamification](components/gamification-ux.md) - แนวทางการออกแบบ UI เป้าสัมผัสขนาดใหญ่, ระบบโหลดบอกสถานะ และระบบสถิติคนขับแบบ Gamification.
 
 ## Lessons Learned & Fixes
+- [Next.js Cache & Error Handling Bug](lessons-learned/nextjs-cache-error-handling.md) - บันทึกการแก้ไขปัญหาการลืม revalidatePath() และการแสดงผล Object Error ที่ไม่ตรงกัน
+- [Testing Pipeline & Debugging (Vitest & Playwright)](lessons-learned/testing-vitest-playwright.md) - การตั้งค่าระบบทดสอบ Vitest และ Playwright พร้อมการจัดการสิทธิ์ RBAC, Strict selectors และ Import bugs.
+- [UI/UX Redesign - Minimalist Theme & SFC Excellence Branding](lessons-learned/ui-redesign-ux.md) - การปรับปรุงหน้าตา UI และ UX ให้มีความคลีน มินิมอล พร้อมเพิ่มโลโก้ SFC Excellence
 - [Supabase Pooler IPv6 ENOTFOUND & Hostname Assignment](lessons-learned/supabase-pooler-ipv6.md) - การแก้ปัญหาการเชื่อมต่อ Supabase ด้วย Pooler บน IPv4 และความต่างของ cluster hosts (aws-0 vs aws-1)
 - [Server Action Zod Schema Export Constraint](lessons-learned/server-action-zod.md) - ข้อจำกัดห้าม export Zod Schema จากไฟล์ `"use server"`.
 - [CORS & CSP Fixes [Deprecated]](lessons-learned/cors-csp-fixes.md) - การจัดการ CORS header อย่างปลอดภัยในยุค GAS.

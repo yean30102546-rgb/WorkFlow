@@ -2,8 +2,10 @@
 
 import { z } from 'zod';
 import { db } from '@/db';
-import { jobs } from '@/db/schema';
-import { eq } from 'drizzle-orm';
+import { jobs, users } from '@/db/schema';
+import { eq, and } from 'drizzle-orm';
+import { revalidatePath } from 'next/cache';
+import { sendMulticastToDrivers } from '@/lib/lineApi';
 import net from 'net';
 
 // Define global mock store for development when DB is not reachable
@@ -70,7 +72,9 @@ import { CreateJobSchema, CreateJobInput } from '@/lib/schemas';
 export interface ActionJob {
   id: string;
   operatorId: string;
+  requestImageUrl?: string | null;
   driverId: string | null;
+  successImageUrl?: string | null;
   status: 'PENDING' | 'PICKED_UP' | 'COMPLETED' | 'CANCELLED';
   itemDetails: {
     batchNumber: string;
@@ -81,6 +85,8 @@ export interface ActionJob {
   startPoint: string;
   endPoint: string;
   createdAt: Date;
+  pickedUpAt?: Date | null;
+  completedAt?: Date | null;
   updatedAt: Date;
 }
 
@@ -100,7 +106,9 @@ export async function createJob(data: unknown) {
     const mockJob: ActionJob = {
       id: `mock-job-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       operatorId: validated.operatorId,
+      requestImageUrl: validated.requestImageUrl || null,
       driverId: null,
+      successImageUrl: null,
       status: 'PENDING',
       itemDetails: {
         batchNumber: validated.batchNumber,
@@ -120,6 +128,7 @@ export async function createJob(data: unknown) {
   try {
     const [inserted] = await db.insert(jobs).values({
       operatorId: validated.operatorId,
+      requestImageUrl: validated.requestImageUrl || null,
       status: 'PENDING',
       itemDetails: {
         batchNumber: validated.batchNumber,
@@ -131,12 +140,19 @@ export async function createJob(data: unknown) {
       endPoint: validated.endPoint,
     }).returning();
 
-    // Prepare LINE notification payload structure
-    const notificationPayload = {
-      message: `🚨 [Forklift-JIT] New Pickup Request!\nItem: ${validated.itemName} (Batch: ${validated.batchNumber})\nFrom: ${validated.storagePosition}\nTo: ${validated.endPoint}\nRequested by ID: ${validated.operatorId}`,
-    };
+    // LINE Push Notification (Multicast to Drivers)
+    try {
+      const driverUsers = await db.select({ id: users.id }).from(users).where(eq(users.role, 'DRIVER'));
+      const driverIds = driverUsers.map(d => d.id);
+      if (driverIds.length > 0) {
+        await sendMulticastToDrivers(driverIds, inserted);
+      }
+    } catch (pushErr) {
+      console.error('Failed to send push notification:', pushErr);
+    }
 
-    return { success: true, job: inserted, notificationPayload };
+    revalidatePath('/');
+    return { success: true, job: inserted };
   } catch (error) {
     console.error('Failed to create job:', error);
     return { success: false, errorMessage: 'Database operation failed' };
@@ -159,25 +175,41 @@ export async function acceptJob(jobId: string, driverId: string) {
     }
     job.driverId = driverId;
     job.status = 'PICKED_UP';
+    job.pickedUpAt = new Date();
     job.updatedAt = new Date();
     return { success: true, job };
   }
 
   try {
-    const [updated] = await db.update(jobs)
+    // 1. Database-Level Role Authorization Check
+    const driverUser = await db.select({ role: users.role }).from(users).where(eq(users.id, driverId)).limit(1);
+    
+    if (driverUser.length === 0) {
+      return { success: false, error: 'User not found in system' };
+    }
+    
+    if (driverUser[0].role !== 'DRIVER') {
+      console.warn(`Unauthorized acceptJob attempt by ${driverId} (Role: ${driverUser[0].role})`);
+      return { success: false, error: 'Unauthorized: Only registered drivers can accept jobs' };
+    }
+
+    // 2. Proceed with updating the job status
+    const updated = await db.update(jobs)
       .set({
         driverId,
         status: 'PICKED_UP',
+        pickedUpAt: new Date(),
         updatedAt: new Date(),
       })
       .where(eq(jobs.id, jobId))
       .returning();
 
-    if (!updated) {
+    if (!updated[0]) {
       return { success: false, errorMessage: 'Job not found or already processed' };
     }
 
-    return { success: true, job: updated };
+    revalidatePath('/');
+    return { success: true, job: updated[0] };
   } catch (error) {
     console.error('Failed to accept job:', error);
     return { success: false, errorMessage: 'Database operation failed' };
@@ -187,7 +219,7 @@ export async function acceptJob(jobId: string, driverId: string) {
 /**
  * Server Action: Complete a job.
  */
-export async function completeJob(jobId: string) {
+export async function completeJob(jobId: string, successImageUrl?: string) {
   if (!jobId) {
     return { success: false, errorMessage: 'Job ID is required' };
   }
@@ -199,6 +231,8 @@ export async function completeJob(jobId: string) {
       return { success: false, errorMessage: 'Job not found' };
     }
     job.status = 'COMPLETED';
+    job.successImageUrl = successImageUrl || null;
+    job.completedAt = new Date();
     job.updatedAt = new Date();
     return { success: true, job };
   }
@@ -207,6 +241,8 @@ export async function completeJob(jobId: string) {
     const [updated] = await db.update(jobs)
       .set({
         status: 'COMPLETED',
+        successImageUrl: successImageUrl || null,
+        completedAt: new Date(),
         updatedAt: new Date(),
       })
       .where(eq(jobs.id, jobId))
@@ -239,6 +275,7 @@ export async function cancelJob(jobId: string) {
     }
     job.status = 'CANCELLED';
     job.updatedAt = new Date();
+    revalidatePath('/');
     return { success: true, job };
   }
 
@@ -255,6 +292,7 @@ export async function cancelJob(jobId: string) {
       return { success: false, errorMessage: 'Job not found' };
     }
 
+    revalidatePath('/');
     return { success: true, job: updated };
   } catch (error) {
     console.error('Failed to cancel job:', error);
@@ -278,4 +316,44 @@ export async function getJobs() {
     console.error('Failed to fetch jobs:', error);
     return [];
   }
+}
+
+/**
+ * Server Action: Fetch statistics for a specific driver (Gamification).
+ */
+export async function getDriverStats(driverId: string) {
+  if (!driverId) return { success: false, stats: null };
+
+  const useMock = await shouldUseMockDb();
+  let driverJobs = [];
+
+  if (useMock) {
+    driverJobs = globalForMock._mockJobs.filter(j => j.driverId === driverId && j.status === 'COMPLETED');
+  } else {
+    try {
+      driverJobs = await db.select().from(jobs).where(
+        and(
+          eq(jobs.driverId, driverId),
+          eq(jobs.status, 'COMPLETED')
+        )
+      );
+    } catch (err) {
+      console.error('Failed to get driver stats:', err);
+      return { success: false, stats: null };
+    }
+  }
+
+  // Calculate stats for today
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const completedToday = driverJobs.filter(j => j.completedAt && new Date(j.completedAt) >= today);
+
+  return {
+    success: true,
+    stats: {
+      totalCompleted: driverJobs.length,
+      completedToday: completedToday.length,
+    }
+  };
 }

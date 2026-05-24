@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import type { Liff } from '@line/liff';
+import { syncUser } from '@/app/actions/users';
 
 interface LiffContextType {
   liff: Liff | null;
@@ -11,6 +12,7 @@ interface LiffContextType {
     displayName: string;
     pictureUrl?: string;
   } | null;
+  role: 'OPERATOR' | 'DRIVER' | 'ADMIN' | null;
   loading: boolean;
   error: string | null;
   login: () => void;
@@ -25,6 +27,7 @@ export const LiffProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [liffObject, setLiffObject] = useState<Liff | null>(null);
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
   const [profile, setProfile] = useState<LiffContextType['profile']>(null);
+  const [role, setRole] = useState<LiffContextType['role']>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [isMock, setIsMock] = useState<boolean>(false);
@@ -40,6 +43,9 @@ export const LiffProvider: React.FC<{ children: React.ReactNode }> = ({ children
         userId: mockUid,
         displayName: mockName,
       });
+      syncUser(mockUid, mockName).then((res) => {
+        if (res.success) setRole(res.role as any);
+      });
       setIsLoggedIn(true);
       setIsMock(true);
       setLoading(false);
@@ -53,6 +59,9 @@ export const LiffProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setProfile({
         userId: 'dev-mock-operator',
         displayName: 'Dev Operator',
+      });
+      syncUser('dev-mock-operator', 'Dev Operator').then((res) => {
+        if (res.success) setRole(res.role as any);
       });
       setIsLoggedIn(true);
       setIsMock(true);
@@ -76,6 +85,9 @@ export const LiffProvider: React.FC<{ children: React.ReactNode }> = ({ children
             displayName: userProfile.displayName,
             pictureUrl: userProfile.pictureUrl,
           });
+          syncUser(userProfile.userId, userProfile.displayName, userProfile.pictureUrl).then((res) => {
+            if (res.success) setRole(res.role as any);
+          });
           // Clean up URL query parameters (code, state) left by LINE OAuth redirect
           if (typeof window !== 'undefined') {
             const url = new URL(window.location.href);
@@ -86,12 +98,22 @@ export const LiffProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
           }
         } else {
+          // If accessing inside LINE app client (such as from LINE OA), automatically log in
+          if (liff.isInClient()) {
+            liff.login({ redirectUri: window.location.href });
+            return;
+          }
+
           // Check local storage for quick testing fallback
           const savedUid = localStorage.getItem('mock_user_uid');
           if (savedUid) {
+            const savedName = localStorage.getItem('mock_user_name') || 'Saved Mock User';
             setProfile({
               userId: savedUid,
-              displayName: localStorage.getItem('mock_user_name') || 'Saved Mock User',
+              displayName: savedName,
+            });
+            syncUser(savedUid, savedName).then((res) => {
+              if (res.success) setRole(res.role as any);
             });
             setIsLoggedIn(true);
             setIsMock(true);
@@ -107,6 +129,9 @@ export const LiffProvider: React.FC<{ children: React.ReactNode }> = ({ children
           userId: 'fallback-mock-operator',
           displayName: 'Fallback Operator',
         });
+        syncUser('fallback-mock-operator', 'Fallback Operator').then((res) => {
+          if (res.success) setRole(res.role as any);
+        });
         setIsLoggedIn(true);
         setIsMock(true);
         setLoading(false);
@@ -115,7 +140,8 @@ export const LiffProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = () => {
     if (liffObject && !isLoggedIn) {
-      liffObject.login();
+      // Use current window location to ensure redirect returns to the active dev port (e.g. 3001)
+      liffObject.login({ redirectUri: window.location.href });
     } else {
       // Mock login for dev/testing
       const newUid = prompt('Enter Mock User ID:', 'operator-1') || 'operator-1';
@@ -129,9 +155,11 @@ export const LiffProvider: React.FC<{ children: React.ReactNode }> = ({ children
       liffObject.logout();
       setIsLoggedIn(false);
       setProfile(null);
+      setRole(null);
     } else {
       setIsLoggedIn(false);
       setProfile(null);
+      setRole(null);
       localStorage.removeItem('mock_user_uid');
       localStorage.removeItem('mock_user_name');
     }
@@ -139,6 +167,9 @@ export const LiffProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const setMockProfile = (userId: string, displayName: string) => {
     setProfile({ userId, displayName });
+    syncUser(userId, displayName).then((res) => {
+      if (res.success) setRole(res.role as any);
+    });
     setIsLoggedIn(true);
     setIsMock(true);
     localStorage.setItem('mock_user_uid', userId);
@@ -151,6 +182,7 @@ export const LiffProvider: React.FC<{ children: React.ReactNode }> = ({ children
         liff: liffObject,
         isLoggedIn,
         profile,
+        role,
         loading,
         error,
         login,

@@ -1,77 +1,195 @@
-import { vi, describe, it, expect, beforeEach } from 'vitest';
-import { createJob } from './jobs';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { createJob, acceptJob, completeJob, cancelJob, getDriverStats } from './jobs';
 import { db } from '@/db';
+import { revalidatePath } from 'next/cache';
 
-// Mock the database client
+// Mock Next.js cache revalidation
+vi.mock('next/cache', () => ({
+  revalidatePath: vi.fn(),
+}));
+
+// Mock LINE API
+vi.mock('@/lib/lineApi', () => ({
+  sendMulticastToDrivers: vi.fn(),
+}));
+
+// Mock db calls with chainable mocks
 vi.mock('@/db', () => {
-  return {
-    db: {
-      insert: vi.fn().mockReturnThis(),
-      values: vi.fn().mockReturnThis(),
-      returning: vi.fn(),
-    },
+  const mockDb = {
+    insert: vi.fn(),
+    select: vi.fn(),
+    update: vi.fn(),
   };
+  return { db: mockDb };
 });
 
-describe('createJob Server Action', () => {
+describe('Jobs Server Actions Unit Tests', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('should validate inputs successfully and insert a new job', async () => {
-    const validData = {
-      batchNumber: 'B-9981',
-      itemNumber: 'ITM-009',
-      itemName: 'Steel Rod 12mm',
-      storagePosition: 'Loading Dock A',
-      startPoint: 'Station A',
-      endPoint: 'Warehouse B',
-      operatorId: 'operator-somchai',
-    };
+  describe('createJob', () => {
+    it('should validate inputs and return error if invalid', async () => {
+      const result = await createJob({
+        operatorId: '', // Invalid empty operatorId
+        batchNumber: 'B-1234',
+        itemNumber: 'ITM-123',
+        itemName: 'Steel Coil',
+        storagePosition: 'Row A',
+      });
 
-    const mockInsertedJob = {
-      id: 'mock-uuid',
-      status: 'PENDING',
-      ...validData,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
+    });
 
-    // Setup mock return value for .returning()
-    vi.mocked(db.returning).mockResolvedValue([mockInsertedJob] as any);
+    it('should insert and return success if valid inputs', async () => {
+      const mockInsertedJob = {
+        id: 'job-1',
+        operatorId: 'op-123',
+        status: 'PENDING',
+        itemDetails: {
+          batchNumber: 'B-1234',
+          itemNumber: 'ITM-123',
+          itemName: 'Steel Coil',
+          storagePosition: 'Row A',
+        },
+        startPoint: 'Station A',
+        endPoint: 'Warehouse B',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
 
-    const result = await createJob(validData);
+      // Mock chain: db.insert().values().returning()
+      const mockReturning = vi.fn().mockResolvedValue([mockInsertedJob]);
+      const mockValues = vi.fn().mockReturnValue({ returning: mockReturning });
+      vi.mocked(db.insert).mockReturnValue({ values: mockValues } as any);
 
-    expect(result.success).toBe(true);
-    expect(result.job).toEqual(mockInsertedJob);
-    expect(db.insert).toHaveBeenCalled();
-    expect(db.values).toHaveBeenCalledWith({
-      operatorId: 'operator-somchai',
-      status: 'PENDING',
-      itemDetails: {
-        batchNumber: 'B-9981',
-        itemNumber: 'ITM-009',
-        itemName: 'Steel Rod 12mm',
-        storagePosition: 'Loading Dock A',
-      },
-      startPoint: 'Station A',
-      endPoint: 'Warehouse B',
+      // Mock users search for LINE notifications
+      const mockFrom = vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue([]) });
+      vi.mocked(db.select).mockReturnValue({ from: mockFrom } as any);
+
+      const result = await createJob({
+        operatorId: 'op-123',
+        batchNumber: 'B-1234',
+        itemNumber: 'ITM-123',
+        itemName: 'Steel Coil',
+        storagePosition: 'Row A',
+        startPoint: 'Station A',
+        endPoint: 'Warehouse B',
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.job).toEqual(mockInsertedJob);
+      expect(db.insert).toHaveBeenCalled();
+      expect(revalidatePath).toHaveBeenCalledWith('/');
     });
   });
 
-  it('should return failure if input validation fails', async () => {
-    const invalidData = {
-      batchNumber: '', // invalid: empty
-      itemNumber: 'ITM-009',
-      itemName: 'Steel Rod 12mm',
-      storagePosition: 'Loading Dock A',
-      operatorId: 'operator-somchai',
-    };
+  describe('acceptJob', () => {
+    it('should prevent acceptance if the user role is not DRIVER', async () => {
+      // Mock db.select().from().where().limit() for user check
+      const mockLimit = vi.fn().mockResolvedValue([{ role: 'OPERATOR' }]); // Role is not DRIVER
+      const mockWhere = vi.fn().mockReturnValue({ limit: mockLimit });
+      const mockFrom = vi.fn().mockReturnValue({ where: mockWhere });
+      vi.mocked(db.select).mockReturnValue({ from: mockFrom } as any);
 
-    const result = await createJob(invalidData);
+      const result = await acceptJob('job-1', 'user-operator-id');
 
-    expect(result.success).toBe(false);
-    expect(result.error).toBeDefined();
-    expect(db.insert).not.toHaveBeenCalled();
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Unauthorized');
+      expect(db.update).not.toHaveBeenCalled();
+    });
+
+    it('should update job status if the user is a registered DRIVER', async () => {
+      // 1. Mock DB check for driver role (returns DRIVER)
+      const mockLimit = vi.fn().mockResolvedValue([{ role: 'DRIVER' }]);
+      const mockWhereSelect = vi.fn().mockReturnValue({ limit: mockLimit });
+      const mockFromSelect = vi.fn().mockReturnValue({ where: mockWhereSelect });
+      
+      // 2. Mock DB update job chain
+      const mockJobUpdate = {
+        id: 'job-1',
+        driverId: 'drv-505',
+        status: 'PICKED_UP',
+      };
+      const mockReturning = vi.fn().mockResolvedValue([mockJobUpdate]);
+      const mockWhereUpdate = vi.fn().mockReturnValue({ returning: mockReturning });
+      const mockSet = vi.fn().mockReturnValue({ where: mockWhereUpdate });
+      
+      // Set dynamic behavior of select vs update mock on db object
+      vi.mocked(db.select).mockReturnValue({ from: mockFromSelect } as any);
+      vi.mocked(db.update).mockReturnValue({ set: mockSet } as any);
+
+      const result = await acceptJob('job-1', 'drv-505');
+
+      expect(result.success).toBe(true);
+      expect(result.job).toEqual(mockJobUpdate);
+      expect(db.update).toHaveBeenCalled();
+      expect(revalidatePath).toHaveBeenCalledWith('/');
+    });
+  });
+
+  describe('completeJob', () => {
+    it('should change status to COMPLETED and set success image', async () => {
+      const mockJobComplete = {
+        id: 'job-1',
+        status: 'COMPLETED',
+        successImageUrl: 'http://example.com/success.webp',
+      };
+      
+      const mockReturning = vi.fn().mockResolvedValue([mockJobComplete]);
+      const mockWhere = vi.fn().mockReturnValue({ returning: mockReturning });
+      const mockSet = vi.fn().mockReturnValue({ where: mockWhere });
+      vi.mocked(db.update).mockReturnValue({ set: mockSet } as any);
+
+      const result = await completeJob('job-1', 'http://example.com/success.webp');
+
+      expect(result.success).toBe(true);
+      expect(result.job).toEqual(mockJobComplete);
+      expect(db.update).toHaveBeenCalled();
+    });
+  });
+
+  describe('cancelJob', () => {
+    it('should change status to CANCELLED', async () => {
+      const mockJobCancel = {
+        id: 'job-1',
+        status: 'CANCELLED',
+      };
+      
+      const mockReturning = vi.fn().mockResolvedValue([mockJobCancel]);
+      const mockWhere = vi.fn().mockReturnValue({ returning: mockReturning });
+      const mockSet = vi.fn().mockReturnValue({ where: mockWhere });
+      vi.mocked(db.update).mockReturnValue({ set: mockSet } as any);
+
+      const result = await cancelJob('job-1');
+
+      expect(result.success).toBe(true);
+      expect(result.job).toEqual(mockJobCancel);
+      expect(db.update).toHaveBeenCalled();
+      expect(revalidatePath).toHaveBeenCalledWith('/');
+    });
+  });
+
+  describe('getDriverStats', () => {
+    it('should calculate driver work statistics correctly', async () => {
+      const mockCompletedJobs = [
+        { id: 'job-1', status: 'COMPLETED', driverId: 'drv-505', completedAt: new Date() },
+        { id: 'job-2', status: 'COMPLETED', driverId: 'drv-505', completedAt: new Date() },
+      ];
+
+      const mockWhere = vi.fn().mockResolvedValue(mockCompletedJobs);
+      const mockFrom = vi.fn().mockReturnValue({ where: mockWhere });
+      vi.mocked(db.select).mockReturnValue({ from: mockFrom } as any);
+
+      const result = await getDriverStats('drv-505');
+
+      expect(result.success).toBe(true);
+      expect(result.stats).toEqual({
+        totalCompleted: 2,
+        completedToday: 2,
+      });
+      expect(db.select).toHaveBeenCalled();
+    });
   });
 });

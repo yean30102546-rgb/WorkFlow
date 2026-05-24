@@ -19,6 +19,47 @@ export interface Job {
   endPoint: string;
   createdAt: string;
   updatedAt: string;
+  pickedUpAt: string | null;
+  completedAt: string | null;
+  requestImageUrl: string | null;
+  successImageUrl: string | null;
+}
+
+function mapDbJobToJob(dbJob: any): Job {
+  let itemDetails = dbJob.itemDetails || dbJob.item_details;
+  if (typeof itemDetails === 'string') {
+    try {
+      itemDetails = JSON.parse(itemDetails);
+    } catch (e) {
+      console.error('Failed to parse itemDetails JSON', e);
+    }
+  }
+
+  const getIsoString = (val: any) => {
+    if (!val) return null;
+    if (typeof val === 'string') return val;
+    try {
+      return new Date(val).toISOString();
+    } catch {
+      return null;
+    }
+  };
+
+  return {
+    id: dbJob.id,
+    operatorId: dbJob.operatorId || dbJob.operator_id,
+    driverId: dbJob.driverId !== undefined ? dbJob.driverId : (dbJob.driver_id || null),
+    status: dbJob.status,
+    itemDetails: itemDetails || { batchNumber: '', itemNumber: '', itemName: '', storagePosition: '' },
+    startPoint: dbJob.startPoint || dbJob.start_point || '',
+    endPoint: dbJob.endPoint || dbJob.end_point || '',
+    createdAt: getIsoString(dbJob.createdAt || dbJob.created_at) || new Date().toISOString(),
+    updatedAt: getIsoString(dbJob.updatedAt || dbJob.updated_at) || new Date().toISOString(),
+    pickedUpAt: getIsoString(dbJob.pickedUpAt || dbJob.picked_up_at),
+    completedAt: getIsoString(dbJob.completedAt || dbJob.completed_at),
+    requestImageUrl: dbJob.requestImageUrl || dbJob.request_image_url || null,
+    successImageUrl: dbJob.successImageUrl || dbJob.success_image_url || null,
+  };
 }
 
 export function useJobs() {
@@ -29,11 +70,7 @@ export function useJobs() {
   const fetchJobs = async () => {
     try {
       const data = await getJobs();
-      const formatted = (data || []).map(j => ({
-        ...j,
-        createdAt: typeof j.createdAt === 'string' ? j.createdAt : (j.createdAt as Date).toISOString(),
-        updatedAt: typeof j.updatedAt === 'string' ? j.updatedAt : (j.updatedAt as Date).toISOString(),
-      })) as Job[];
+      const formatted = (data || []).map(j => mapDbJobToJob(j));
       setJobs(formatted);
       setError(null);
     } catch (err) {
@@ -70,21 +107,13 @@ export function useJobs() {
           const { eventType, new: newRecord, old: oldRecord } = payload;
 
           if (eventType === 'INSERT') {
-            const formatted = {
-              ...newRecord,
-              createdAt: typeof newRecord.created_at === 'string' ? newRecord.created_at : new Date(newRecord.created_at).toISOString(),
-              updatedAt: typeof newRecord.updated_at === 'string' ? newRecord.updated_at : new Date(newRecord.updated_at).toISOString(),
-            } as Job;
+            const formatted = mapDbJobToJob(newRecord);
             setJobs((prev) => {
               if (prev.some(j => j.id === formatted.id)) return prev;
               return [...prev, formatted];
             });
           } else if (eventType === 'UPDATE') {
-            const formatted = {
-              ...newRecord,
-              createdAt: typeof newRecord.created_at === 'string' ? newRecord.created_at : new Date(newRecord.created_at).toISOString(),
-              updatedAt: typeof newRecord.updated_at === 'string' ? newRecord.updated_at : new Date(newRecord.updated_at).toISOString(),
-            } as Job;
+            const formatted = mapDbJobToJob(newRecord);
             setJobs((prev) =>
               prev.map((j) => (j.id === formatted.id ? formatted : j))
             );
