@@ -33,12 +33,35 @@ export const LiffProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isMock, setIsMock] = useState<boolean>(false);
 
   useEffect(() => {
+    let initialized = false;
+
+    // Safety timeout: If initialization takes more than 3 seconds (e.g. LIFF or database sync hangs),
+    // we forcefully bypass the loading screen and fallback to mock operator mode.
+    const safetyTimeout = setTimeout(() => {
+      if (!initialized) {
+        console.warn('LIFF initialization is taking too long. Forcing fallback.');
+        setProfile({
+          userId: 'dev-mock-operator',
+          displayName: 'Dev Operator',
+        });
+        syncUser('dev-mock-operator', 'Dev Operator').then((res) => {
+          if (res.success) setRole(res.role as any);
+        });
+        setIsLoggedIn(true);
+        setIsMock(true);
+        setLoading(false);
+        initialized = true;
+      }
+    }, 3000);
+
     const searchParams = new URLSearchParams(window.location.search);
     const mockUid = searchParams.get('uid');
     const mockName = searchParams.get('name') || 'Factory Worker';
 
     // If query params specify mock credentials, use them directly
     if (mockUid) {
+      initialized = true;
+      clearTimeout(safetyTimeout);
       setProfile({
         userId: mockUid,
         displayName: mockName,
@@ -56,6 +79,8 @@ export const LiffProvider: React.FC<{ children: React.ReactNode }> = ({ children
     console.log('Initializing LIFF with ID:', liffId);
     if (!liffId || liffId === 'your-liff-id') {
       console.warn('LINE LIFF ID is not configured. Falling back to development mock mode.');
+      initialized = true;
+      clearTimeout(safetyTimeout);
       setProfile({
         userId: 'dev-mock-operator',
         displayName: 'Dev Operator',
@@ -71,8 +96,14 @@ export const LiffProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     import('@line/liff')
       .then(async (module) => {
+        if (initialized) return;
         const liff = module.default;
-        await liff.init({ liffId });
+        // Add a 4-second timeout to prevent hanging on invalid LIFF IDs or unregistered domains
+        const initPromise = liff.init({ liffId });
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('LIFF initialization timed out after 4 seconds')), 4000)
+        );
+        await Promise.race([initPromise, timeoutPromise]);
         setLiffObject(liff);
 
         const loggedIn = liff.isLoggedIn();
@@ -101,6 +132,8 @@ export const LiffProvider: React.FC<{ children: React.ReactNode }> = ({ children
           // If accessing inside LINE app client (such as from LINE OA), automatically log in
           if (liff.isInClient()) {
             liff.login({ redirectUri: window.location.href });
+            initialized = true;
+            clearTimeout(safetyTimeout);
             return;
           }
 
@@ -119,9 +152,12 @@ export const LiffProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setIsMock(true);
           }
         }
+        initialized = true;
+        clearTimeout(safetyTimeout);
         setLoading(false);
       })
       .catch((err) => {
+        if (initialized) return;
         console.error('LIFF initialization failed:', err);
         setError(err.message || 'Failed to initialize LIFF');
         // Fallback to mock for testing instead of hard crash
@@ -134,8 +170,12 @@ export const LiffProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
         setIsLoggedIn(true);
         setIsMock(true);
+        initialized = true;
+        clearTimeout(safetyTimeout);
         setLoading(false);
       });
+
+    return () => clearTimeout(safetyTimeout);
   }, []);
 
   const login = () => {
